@@ -24,11 +24,11 @@
          * Add floor on queue to stop
          * @param {number} floor 
          */
-        const addQueue = (floor) => {
+        const addToDestinationQueue = (floor) => {
             const { destinationQueue } = ev;
             if (!destinationQueue.includes(floor)) destinationQueue.push(floor);
 
-            const direction = getDirection();
+            const direction = getEvDirection();
             lastDirection = direction;
             switch (direction) {
                 case 'up':
@@ -42,72 +42,98 @@
             ev.checkDestinationQueue();
         };
 
-        /**
-         * Change elevator up and down indicator
-         */
-        const changeIndicator = () => {
+        const getEvDirection = () => {
+            const { destinationQueue } = ev;          
+            if (!destinationQueue.length) return 'stopped';
+
             const currentFloor = ev.currentFloor();
-            const direction = getDirection()
+            for (let i = 0; i < destinationQueue.length; i += 1) {
+                const nextFloor = destinationQueue[i];
+                if (currentFloor < nextFloor) return 'up';
+                if (currentFloor > nextFloor) return 'down';
+            }
+            return 'stopped';
+        }
+
+        /**
+         * 엘리베이터 내부 버튼 누름
+         * 
+         * Indicator에 따라 누를 수 있는 버튼이 정해져 있음
+         * 예를 들어, UpIndicator만 켜져있으면 내려가는 현재 층 이하 버튼 안 눌러짐
+         * @param {number} targetFloor
+         */
+         const onEvBtnPress = (targetFloor) => {
+            addToDestinationQueue(targetFloor); // button press가 가능하다면 해당 층으로 가는 direction이거나 정지해있는 상태임
+        }
+
+        /**
+         * 엘리베이터 정지했을 때
+         * 
+         * 최초 시작할 때 || 엘리베이터가 움직이다가 정지했을 때
+         */
+        const onEvStop = () => {
+            const currentFloor = ev.currentFloor();
+            const direction = getEvDirection()
             switch (direction) {
                 case 'up':
-                    ev.goingUpIndicator(true);
-                    ev.goingDownIndicator(false);
-                    floorButtons[currentFloor].up = false;
-                    break;
                 case 'down':
-                    ev.goingUpIndicator(false);
-                    ev.goingDownIndicator(true);
-                    floorButtons[currentFloor].down = false;
+                    setEvIndicator(direction);
+                    floorButtons[currentFloor][direction] = false;
                     break;
                 case 'stopped':
-                    // 정지 상태 = 방향 전환
-                    if (lastDirection === 'down') { // down -> up
-                        floorButtons.forEach((floorButton, idx) => {
-                            if (floorButton.up) addQueue(idx);
-                        });
-                        floorButtons[currentFloor].up = false; // 현재층의 up 끔
-
-                        // indicator
-                        ev.goingUpIndicator(true);
-                        ev.goingDownIndicator(ev.destinationQueue.length === 0);
-                    } else if (lastDirection === 'up') { // up -> down
-                        floorButtons.forEach((floorButton, idx) => {
-                            if (floorButton.down) addQueue(idx);
-                        });
-                        floorButtons[currentFloor].down = false; // 현재층의 down 끔
-
-                        // indicator
-                        ev.goingUpIndicator(ev.destinationQueue.length === 0);
-                        ev.goingDownIndicator(true);
-                    } else {
-                        alert('발생하면 안 됨');
+                    // floorButtons 정보 기반으로 올라갈 지 내려갈지 결정해야 함
+                    // - 무식하게 0층부터 확인
+                    // - 다음 direction은 floorButton이 press된 층과 현재 층과의 관계로 계산
+                    let hasDirection = false;
+                    for (let i = 0; i < floorButtons.length; i += 1) {
+                        if (floorButtons[i].up || floorButtons[i].down) {                               
+                            /**
+                             * elevator의 다음 방향
+                             * - up, down, any
+                             * - any는 올라갈 수도 내려갈 수도 있다는 의미
+                             */
+                            if (i < currentFloor) {
+                                setEvIndicator('up');
+                                hasDirection = true;
+                                break;
+                            } else if (i > currentFloor) {
+                                setEvIndicator('down');
+                                hasDirection = true;
+                                break;
+                            } else { // 현재 층에 정지한 상태
+                                if (floorButtons[i].up) {
+                                    setEvIndicator('up');
+                                    floorButtons[currentFloor].up = false;
+                                } else if (floorButtons[i].down) {
+                                    setEvIndicator('down');
+                                    floorButtons[currentFloor].down = false;
+                                }
+                            }
+                        }
                     }
-
+                    if (!hasDirection) {
+                        setEvIndicator('any');
+                    }
                     break;
                 default:
             }
         };
 
-        const getDirection = () => {
-            const { destinationQueue } = ev;          
-            if (!destinationQueue.length) return "stopped";
-
-            const currentFloor = ev.currentFloor();
-            for (let i = 0; i < destinationQueue.length; i += 1) {
-                const nextFloor = destinationQueue[i];
-                if (currentFloor < nextFloor) return "up";
-                if (currentFloor > nextFloor) return "down";
-            }
-            return "stopped";
-        }
-
         /**
          * Set floor up or down button
          * @param {number} floorNum
-         * @param {"up"|"down"} buttonDirection 
+         * @param {'up'|'down'} buttonDirection 
          */
-        const setFloorButton = (floorNum, buttonDirection) => {
-            const evDirection = getDirection()
+        const onFloorBtnPress = (floorNum, buttonDirection) => {
+            const evDirection = getEvDirection()
+
+            // 올라가고 있는데 다시 올라가는 버튼이 눌러질까?
+            if (floorNum === ev.currentFloor() && buttonDirection === evDirection) {
+                alert('올라가고 있는데 다시 올라가는 버튼이 눌러진다!!!');
+            }
+
+            
+
             if (ev.currentFloor() === floorNum) {
                 // do nothing
             } else {
@@ -117,14 +143,14 @@
                 switch (`${evDirection}-${buttonDirection}`) {
                     case 'up-up':
                     case 'stopped-up':
-                        if (currentFloor < floorNum) addQueue(floorNum);
+                        if (currentFloor < floorNum) addToDestinationQueue(floorNum);
                         break;
                     case 'down-up':
                         // 예를 들어, 3층에서 1층을 목표로 내려가고 있는데 0층에서 올라가고자 할 때
                         break;
                     case 'down-down':
                     case 'stopped-down':
-                        if (currentFloor > floorNum) addQueue(floorNum);
+                        if (currentFloor > floorNum) addToDestinationQueue(floorNum);
                         break;
                     case 'up-down':
                         // 예를 들어, 1층에서 2층을 목표로 올라가고 있는데 4층에서 내려가고자 할 때
@@ -135,34 +161,37 @@
         }
 
         /**
-         * Try to go to target floor
-         * 
-         * **가능**하다면 target floor에 정지하도록 queue에 등록 요청함
-         * - 현재 올라가고 있는데 아래 층을 누르는 등의 동작은 무시함
-         * @param {number} targetFloor
+         * 엘레베이터의 방향 indicator 설정
+         * @param {'up'|'down','any'} direction 
          */
-        const onElevatorButtonPress = (targetFloor) => {
-            const direction = getDirection()
-            const currentFloor = ev.currentFloor();
-            if (direction === 'up' && targetFloor > currentFloor) {
-                addQueue(targetFloor);
-            } else if (direction === 'down' && targetFloor < currentFloor) {
-                addQueue(targetFloor);
-            } else if (direction === 'stopped') {
-                addQueue(targetFloor);
+        const setEvIndicator = (direction) => {
+            switch (direction) {
+                case 'up':
+                    ev.goingUpIndicator(true);
+                    ev.goingDownIndicator(false);
+                    break;
+                case 'down':
+                    ev.goingUpIndicator(false);
+                    ev.goingDownIndicator(true);
+                    break;
+                case 'any':
+                    ev.goingUpIndicator(true);
+                    ev.goingDownIndicator(true);
+                    break;
+                default:
             }
         }
 
-        ev.on('floor_button_pressed', onElevatorButtonPress);
+        ev.on('floor_button_pressed', onEvBtnPress);
 
-        ev.on('stopped_at_floor', changeIndicator);
+        ev.on('stopped_at_floor', onEvStop);
 
         floors.forEach((floor) => {
             floor.on('down_button_pressed', () => {
-                setFloorButton(floor.floorNum(), "down");
+                onFloorBtnPress(floor.floorNum(), 'down');
             });
             floor.on('up_button_pressed', () => {
-                setFloorButton(floor.floorNum(), "up");
+                onFloorBtnPress(floor.floorNum(), 'up');
             });
         })
     },
